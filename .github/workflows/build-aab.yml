@@ -1,0 +1,47 @@
+name: Build Android App Bundle (Bubblewrap TWA)
+
+# Manual dispatch: Gradle/Bubblewrap cannot run on the agent VM, so the
+# signed AAB is produced here in CI. Requires repo secrets:
+#   ANDROID_KEYSTORE_BASE64   (base64 of android.keystore)
+#   BUBBLEWRAP_KEYSTORE_PASSWORD
+#   BUBBLEWRAP_KEY_PASSWORD
+on:
+  workflow_dispatch:
+
+jobs:
+  build-aab:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Bubblewrap CLI (PBL 8 / target SDK 36 line)
+        run: npm install -g @bubblewrap/cli@1.25.0
+
+      - name: Restore upload keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > android.keystore
+
+      - name: Apply twa-manifest to Android project
+        run: bubblewrap update
+
+      - name: Build signed AAB
+        env:
+          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.BUBBLEWRAP_KEYSTORE_PASSWORD }}
+          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.BUBBLEWRAP_KEY_PASSWORD }}
+        run: bubblewrap build
+
+      - name: Upload AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: equalifi-aab
+          path: |
+            app-release-bundle.aab
+            app-release-signed.apk

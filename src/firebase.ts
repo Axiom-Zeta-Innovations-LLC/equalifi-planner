@@ -1,0 +1,109 @@
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInWithPopup, 
+  signOut, 
+  GoogleAuthProvider, 
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  onAuthStateChanged,
+  User 
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  doc, 
+  getDoc, 
+  setDoc, 
+  serverTimestamp 
+} from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
+
+// Support both embedded configuration and standard Vite environment variables for export portability
+const resolvedConfig = {
+  apiKey: firebaseConfig.apiKey || import.meta.env.VITE_FIREBASE_API_KEY || '',
+  authDomain: firebaseConfig.authDomain || import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || '',
+  projectId: firebaseConfig.projectId || import.meta.env.VITE_FIREBASE_PROJECT_ID || '',
+  storageBucket: firebaseConfig.storageBucket || import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '',
+  messagingSenderId: firebaseConfig.messagingSenderId || import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '',
+  appId: firebaseConfig.appId || import.meta.env.VITE_FIREBASE_APP_ID || '',
+};
+
+const firestoreDatabaseId = firebaseConfig.firestoreDatabaseId || import.meta.env.VITE_FIREBASE_DATABASE_ID;
+
+const app = getApps().length > 0 ? getApp() : initializeApp(resolvedConfig);
+export const auth = getAuth(app);
+
+// Use the dedicated databaseId if provided
+export const db = firestoreDatabaseId 
+  ? getFirestore(app, firestoreDatabaseId)
+  : getFirestore(app);
+
+export const googleProvider = new GoogleAuthProvider();
+googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+export async function signInWithGoogle() {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    // Record user profile in Firestore
+    if (result.user) {
+      await setDoc(doc(db, 'users', result.user.uid), {
+        email: result.user.email || '',
+        displayName: result.user.displayName || '',
+        photoURL: result.user.photoURL || '',
+        updatedAt: new Date().toISOString()
+      }, { merge: true });
+    }
+    return result.user;
+  } catch (error: any) {
+    console.error('Google sign-in error:', error);
+    throw error;
+  }
+}
+
+export async function signInWithEmail(email: string, pass: string) {
+  const result = await signInWithEmailAndPassword(auth, email, pass);
+  return result.user;
+}
+
+export async function registerWithEmail(email: string, pass: string, name?: string) {
+  const result = await createUserWithEmailAndPassword(auth, email, pass);
+  if (name && result.user) {
+    await updateProfile(result.user, { displayName: name });
+  }
+  if (result.user) {
+    await setDoc(doc(db, 'users', result.user.uid), {
+      email: result.user.email || '',
+      displayName: name || result.user.displayName || '',
+      photoURL: result.user.photoURL || '',
+      updatedAt: new Date().toISOString()
+    }, { merge: true });
+  }
+  return result.user;
+}
+
+export async function logOut() {
+  await signOut(auth);
+}
+
+export async function savePlanToCloud(userId: string, planData: any) {
+  if (!userId) return;
+  const planRef = doc(db, 'users', userId, 'plans', 'active');
+  await setDoc(planRef, {
+    ...planData,
+    updatedAt: new Date().toISOString()
+  }, { merge: true });
+}
+
+export async function loadPlanFromCloud(userId: string) {
+  if (!userId) return null;
+  const planRef = doc(db, 'users', userId, 'plans', 'active');
+  const snap = await getDoc(planRef);
+  if (snap.exists()) {
+    return snap.data();
+  }
+  return null;
+}
+
+export { onAuthStateChanged };
+export type { User };

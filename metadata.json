@@ -1,0 +1,6 @@
+{
+  "name": "EqualiF.I. Planner",
+  "description": "An educational, multi-step financial assessment tool to calculate your Financial Independence Number, optimize debt, budget cash flow, evaluate risk, and model retirement, education, and protection needs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
