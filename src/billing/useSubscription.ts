@@ -2,47 +2,58 @@ import React from 'react';
 import {
   PLAY_BILLING_SERVICE_URL,
   PLAN_ITEM_IDS,
+  STRIPE_PAYMENT_LINKS,
   SUBSCRIPTION_PLANS,
 } from './plans';
 import type {
   DigitalGoodsItemDetails,
   DigitalGoodsService,
 } from './digital-goods.d';
+import { auth, onAuthStateChanged } from '../firebase';
+import { fetchStripeEntitlement } from './stripeEntitlement';
 
 export type SubscriptionStatus =
   | 'loading' // checking environment / purchases
-  | 'unavailable' // not in the Play/TWA environment (open web) — no gate
-  | 'free' // Play environment, no active subscription
-  | 'premium'; // Play environment, active subscription found
+  | 'unavailable' // no billing environment resolved yet (transient)
+  | 'free' // billable environment, no active subscription
+  | 'premium'; // active subscription found
+
+export type BillingChannel = 'play' | 'stripe' | null;
 
 export interface SubscriptionState {
   status: SubscriptionStatus;
+  channel: BillingChannel;
+  userId: string | null;
   details: Record<string, DigitalGoodsItemDetails>;
   purchasingItemId: string | null;
   error: string | null;
   refresh: () => Promise<void>;
   purchase: (itemId: string) => Promise<boolean>;
+  /** Builds the Stripe Payment Link checkout URL (web channel). */
+  stripeCheckoutUrl: (itemId: string) => string | null;
 }
 
 /**
- * Google Play Billing via the Digital Goods API.
+ * Subscription entitlement across both storefronts.
  *
- * Entitlement model (v1):
- * - Inside the Android app (TWA with Play Billing enabled), premium is
- *   unlocked when `listPurchases()` returns an active purchase for one
- *   of PLAN_ITEM_IDS.
- * - On the open web the Digital Goods API does not exist; the planner
- *   runs ungated and the paywall simply explains that the subscription
- *   lives in the Android app.
+ * - Android app (TWA): Google Play Billing via the Digital Goods API.
+ *   Premium when listPurchases() shows an active purchase of one of
+ *   PLAN_ITEM_IDS.
+ * - Web: Stripe paywall. Premium when the signed-in user's Firestore
+ *   entitlement (`entitlements/{uid}`, written by the Stripe webhook)
+ *   is active. Checkout runs through Stripe Payment Links with
+ *   ?client_reference_id=<uid> so the webhook can attach the purchase.
  *
- * Production hardening still required before public launch: verify
- * purchases server-side with the Google Play Developer API and listen
- * to Real-time Developer Notifications; client-side listPurchases()
- * alone is the standard v1 approach for a TWA but is not a backend
- * entitlement ledger.
+ * Premium unlocks Dashboard / Scenarios / Report (steps 9-11) in both
+ * channels; the assessment (steps 1-8) stays open.
+ *
+ * Production hardening: Play purchases are client-checked (standard
+ * TWA v1); the Stripe path is webhook-verified server-side.
  */
 export function useSubscription(): SubscriptionState {
   const [status, setStatus] = React.useState<SubscriptionStatus>('loading');
+  const [channel, setChannel] = React.useState<BillingChannel>(null);
+  const [userId, setUserId] = React.useState<string | null>(null);
   const [details, setDetails] = React.useState<
     Record<string, DigitalGoodsItemDetails>
   >({});
@@ -67,38 +78,70 @@ export function useSubscription(): SubscriptionState {
   const refresh = React.useCallback(async () => {
     try {
       const service = await getService();
-      if (!service) {
-        setStatus('unavailable');
+      if (service) {
+        setChannel('play');
+        const purchases = await service.listPurchases();
+        const entitled = purchases.some((p) =>
+          PLAN_ITEM_IDS.includes(p.itemId),
+        );
+        setStatus(entitled ? 'premium' : 'free');
+        try {
+          const items = await service.getDetails(PLAN_ITEM_IDS);
+          const map: Record<string, DigitalGoodsItemDetails> = {};
+          for (const item of items) map[item.itemId] = item;
+          setDetails(map);
+        } catch {
+          // Price display falls back to the configured USD prices.
+        }
         return;
       }
-      const purchases = await service.listPurchases();
-      const entitled = purchases.some((p) => PLAN_ITEM_IDS.includes(p.itemId));
-      setStatus(entitled ? 'premium' : 'free');
-      try {
-        const items = await service.getDetails(PLAN_ITEM_IDS);
-        const map: Record<string, DigitalGoodsItemDetails> = {};
-        for (const item of items) map[item.itemId] = item;
-        setDetails(map);
-      } catch {
-        // Price display falls back to the configured USD prices.
+      // Web channel: Stripe entitlement for the signed-in user.
+      setChannel('stripe');
+      const user = auth.currentUser;
+      setUserId(user?.uid ?? null);
+      if (!user) {
+        setStatus('free');
+        return;
       }
+      const entitlement = await fetchStripeEntitlement(user.uid);
+      setStatus(entitlement?.active ? 'premium' : 'free');
     } catch (err) {
-      setStatus('unavailable');
+      setStatus('free');
       setError(err instanceof Error ? err.message : String(err));
     }
   }, [getService]);
 
   React.useEffect(() => {
     void refresh();
+    const unsub = onAuthStateChanged(auth, () => {
+      void refresh();
+    });
+    return () => unsub();
   }, [refresh]);
+
+  const stripeCheckoutUrl = React.useCallback(
+    (itemId: string) => {
+      const base = STRIPE_PAYMENT_LINKS[itemId];
+      if (!base) return null;
+      const uid = auth.currentUser?.uid;
+      if (!uid) return base;
+      const sep = base.includes('?') ? '&' : '?';
+      return `${base}${sep}client_reference_id=${encodeURIComponent(uid)}`;
+    },
+    [],
+  );
 
   const purchase = React.useCallback(
     async (itemId: string) => {
       const service = await getService();
       if (!service) {
-        setError(
-          'Google Play Billing is only available inside the Android app.',
-        );
+        // Web: hand off to Stripe Checkout (Payment Link).
+        const url = stripeCheckoutUrl(itemId);
+        if (url) {
+          window.location.href = url;
+          return true;
+        }
+        setError('Checkout is not configured for this plan yet.');
         return false;
       }
       setPurchasingItemId(itemId);
@@ -149,8 +192,18 @@ export function useSubscription(): SubscriptionState {
         setPurchasingItemId(null);
       }
     },
-    [getService, refresh],
+    [getService, refresh, stripeCheckoutUrl],
   );
 
-  return { status, details, purchasingItemId, error, refresh, purchase };
+  return {
+    status,
+    channel,
+    userId,
+    details,
+    purchasingItemId,
+    error,
+    refresh,
+    purchase,
+    stripeCheckoutUrl,
+  };
 }

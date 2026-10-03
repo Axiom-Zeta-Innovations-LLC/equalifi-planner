@@ -67,6 +67,15 @@ export default function App() {
       setPaywallOpen(true);
     }
   }, [sub.status]);
+  // Returning from Stripe Checkout: re-check entitlement and show status.
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('checkout') === 'success') {
+      void sub.refresh();
+      setPaywallOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Core Orchestration States
   const [household, setHousehold] = React.useState<HouseholdProfile>({
@@ -701,6 +710,10 @@ export default function App() {
         isOpen={paywallOpen}
         onClose={() => setPaywallOpen(false)}
         sub={sub}
+        onNeedSignIn={() => {
+          setPaywallOpen(false);
+          setAuthModalOpen(true);
+        }}
       />
 
       {/* Offline Connectivity Banner */}

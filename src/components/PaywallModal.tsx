@@ -7,6 +7,7 @@ interface PaywallModalProps {
   isOpen: boolean;
   onClose: () => void;
   sub: SubscriptionState;
+  onNeedSignIn?: () => void;
 }
 
 function formatPrice(
@@ -31,14 +32,22 @@ function formatPrice(
 /**
  * EqualiF.I. Premium paywall.
  *
- * Inside the Google Play app this drives Play Billing through the
- * Digital Goods API. On the open web it explains the subscription and
- * points to the Android app; the web planner itself stays ungated.
+ * Two storefronts, one entitlement:
+ * - Android app (TWA): Google Play Billing via the Digital Goods API.
+ * - Web: Stripe Payment Links checkout; the Stripe webhook writes the
+ *   entitlement to Firestore and this modal reads it back.
+ * Premium unlocks the Dashboard, Scenarios, and Report.
  */
-export default function PaywallModal({ isOpen, onClose, sub }: PaywallModalProps) {
+export default function PaywallModal({
+  isOpen,
+  onClose,
+  sub,
+  onNeedSignIn,
+}: PaywallModalProps) {
   if (!isOpen) return null;
 
-  const inPlay = sub.status === 'free' || sub.status === 'premium';
+  const isStripe = sub.channel === 'stripe';
+  const needsSignIn = isStripe && !sub.userId;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-zinc-950/50 backdrop-blur-sm p-4 print:hidden">
@@ -69,8 +78,9 @@ export default function PaywallModal({ isOpen, onClose, sub }: PaywallModalProps
               <div>
                 <p className="font-bold text-emerald-900">You&apos;re Premium.</p>
                 <p className="text-sm text-emerald-800">
-                  Your Google Play subscription is active. Manage or cancel it
-                  anytime in Google Play &gt; Subscriptions.
+                  {isStripe
+                    ? 'Your Stripe subscription is active. Manage or cancel it from the billing email receipt or by contacting us.'
+                    : 'Your Google Play subscription is active. Manage or cancel it anytime in Google Play > Subscriptions.'}
                 </p>
               </div>
             </div>
@@ -94,25 +104,30 @@ export default function PaywallModal({ isOpen, onClose, sub }: PaywallModalProps
                     <p className="text-xs text-zinc-600 flex-1">{plan.blurb}</p>
                     <button
                       type="button"
-                      disabled={!inPlay || sub.purchasingItemId !== null}
-                      onClick={() => void sub.purchase(plan.itemId)}
+                      disabled={sub.purchasingItemId !== null}
+                      onClick={() => {
+                        if (needsSignIn && onNeedSignIn) {
+                          onNeedSignIn();
+                          return;
+                        }
+                        void sub.purchase(plan.itemId);
+                      }}
                       className="mt-1 w-full py-2 rounded-lg bg-gradient-to-r from-blue-600 to-emerald-600 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed hover:from-blue-700 hover:to-emerald-700 transition-all cursor-pointer"
                     >
                       {sub.purchasingItemId === plan.itemId
-                        ? 'Opening Google Play…'
-                        : inPlay
-                          ? `Subscribe ${plan.name}`
-                          : 'Available in the Android app'}
+                        ? 'Opening checkout…'
+                        : needsSignIn
+                          ? 'Sign in to subscribe'
+                          : `Subscribe ${plan.name}`}
                     </button>
                   </div>
                 ))}
               </div>
 
-              {!inPlay && (
+              {needsSignIn && (
                 <p className="text-xs text-zinc-600 bg-zinc-50 border border-zinc-200 rounded-lg p-3">
-                  Subscriptions are sold through Google Play inside the
-                  EqualiF.I. Planner Android app. This web version stays open
-                  so you can explore the planner first.
+                  Create a free account first so your subscription attaches to
+                  your planner. You&apos;ll come right back here to check out.
                 </p>
               )}
 
@@ -129,11 +144,11 @@ export default function PaywallModal({ isOpen, onClose, sub }: PaywallModalProps
               )}
 
               <p className="text-[11px] leading-relaxed text-zinc-500">
-                Auto-renews until cancelled. Payment is charged to your Google
-                Play account; manage or cancel anytime in Google Play
-                subscriptions. EqualiF.I. Planner is an educational tool and
-                does not provide individualized financial, tax, legal, or
-                investment advice.
+                {isStripe
+                  ? 'Auto-renews until cancelled. Secure checkout by Stripe; manage or cancel anytime via your billing receipt. '
+                  : 'Auto-renews until cancelled. Payment is charged to your Google Play account; manage or cancel anytime in Google Play subscriptions. '}
+                EqualiF.I. Planner is an educational tool and does not provide
+                individualized financial, tax, legal, or investment advice.
               </p>
             </>
           )}
