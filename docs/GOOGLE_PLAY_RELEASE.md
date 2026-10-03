@@ -54,9 +54,10 @@ Monetize → Subscriptions → Create subscription:
    testing track first.
 4. After the first upload, open Play Console → Setup → App signing and copy
    the **App signing key** SHA-256 fingerprint into
-   `public/.well-known/assetlinks.json` (replacing the placeholder that
-   ends in `99:99:99`), then redeploy the web app. Without this the TWA
-   shows a browser address bar instead of running fullscreen.
+   `public/.well-known/assetlinks.json` as a second fingerprint (the file
+   already carries the local upload-key fingerprint), then redeploy the
+   web app. Without this the TWA shows a browser address bar instead of
+   running fullscreen.
 5. Store listing: name, short/full description (educational planner,
    not financial advice), icon, feature graphic, phone screenshots
    (`public/screenshot-mobile.png` can seed these).
