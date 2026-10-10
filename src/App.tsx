@@ -26,8 +26,6 @@ import ScenarioComparison from './components/ScenarioComparison';
 import ReportView from './components/ReportView';
 import AuthModal from './components/AuthModal';
 import UserMenu from './components/UserMenu';
-import PaywallModal from './components/PaywallModal';
-import { useSubscription } from './billing/useSubscription';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { OfflineIndicator } from './components/OfflineIndicator';
 
@@ -50,31 +48,8 @@ const STEPS = [
 export default function App() {
   const [activeStep, setActiveStep] = React.useState(1);
 
-  // Google Play subscription (Digital Goods API; ungated on the open web).
-  // Premium unlocks Dashboard / Scenarios / Report inside the Android app.
-  const sub = useSubscription();
-  const [paywallOpen, setPaywallOpen] = React.useState(false);
   const goToStep = React.useCallback((id: number) => {
-    if (sub.status === 'free' && id >= 9) {
-      setPaywallOpen(true);
-      return;
-    }
     setActiveStep(id);
-  }, [sub.status]);
-  React.useEffect(() => {
-    if (sub.status === 'free' && !sessionStorage.getItem('equalifi_paywall_seen')) {
-      sessionStorage.setItem('equalifi_paywall_seen', '1');
-      setPaywallOpen(true);
-    }
-  }, [sub.status]);
-  // Returning from Stripe Checkout: re-check entitlement and show status.
-  React.useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('checkout') === 'success') {
-      void sub.refresh();
-      setPaywallOpen(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Core Orchestration States
@@ -510,14 +485,6 @@ export default function App() {
             Reset
           </button>
 
-          {/* Premium / Google Play subscription */}
-          <button
-            type="button"
-            onClick={() => setPaywallOpen(true)}
-            className="px-3 py-1.5 bg-amber-50/80 hover:bg-amber-100/90 text-amber-800 border border-amber-300/60 rounded-lg text-xs font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1.5 backdrop-blur-xs"
-          >
-            {sub.status === 'premium' ? 'Premium ✓' : 'Go Premium'}
-          </button>
 
           {/* In-App PWA Install Prompt */}
           <PWAInstallButton />
@@ -705,16 +672,6 @@ export default function App() {
         }}
       />
 
-      {/* Google Play Premium Paywall */}
-      <PaywallModal
-        isOpen={paywallOpen}
-        onClose={() => setPaywallOpen(false)}
-        sub={sub}
-        onNeedSignIn={() => {
-          setPaywallOpen(false);
-          setAuthModalOpen(true);
-        }}
-      />
 
       {/* Offline Connectivity Banner */}
       <OfflineIndicator />

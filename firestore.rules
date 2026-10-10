@@ -11,10 +11,5 @@ service cloud.firestore {
       }
     }
 
-    // Stripe entitlement (written only by the Stripe webhook via Admin SDK)
-    match /entitlements/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
-    }
   }
 }

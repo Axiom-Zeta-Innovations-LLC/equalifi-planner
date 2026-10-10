@@ -29,7 +29,11 @@ Status key: ✅ done in this repo · ⏳ needs Play Console / Zebulon action
   target SDK 36 line). Gradle cannot run on the agent VM, so the AAB is
   built in GitHub Actions.
 
-## Subscription products (create in Play Console)
+## Subscription products — REMOVED (2026-10-10)
+
+The paywall was removed and the app is now fully free and open source (AGPL-3.0). Do not create Play subscription products.
+
+### (Obsolete) Subscription products (create in Play Console)
 
 Monetize → Subscriptions → Create subscription:
 
